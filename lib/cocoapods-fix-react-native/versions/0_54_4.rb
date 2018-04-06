@@ -79,6 +79,15 @@ def has_frameworks
   return File.exists?(filepath)
 end
 
+# Detect source file dependency in the generated Pods.xcodeproj workspace sub-project
+def has_pods_project_source_file(source_filename)
+  pods_project = 'Pods/Pods.xcodeproj/project.pbxproj'
+  if File.foreach(pods_project).grep(/#{source_filename}/).any?
+    return true
+  end
+  return false
+end
+
 def fix_method_queue_property_defs
   return if has_frameworks
 
@@ -92,9 +101,33 @@ def fix_method_queue_property_defs
   edit_pod_file bridge_module_file, method_queue_old_code, method_queue_new_code
 end
 
+def detect_missing_subspecs
+  return unless has_frameworks
+
+  # For CocoaPods + Frameworks, RCTNetwork and CxxBridge subspecs are necessary
+  # to include all the required source files into the compilation target.
+
+  if has_pods_project_source_file 'RCTBlobManager.mm'
+    # then it may fail to compile then fail to link if it does not also have:
+    dependency = 'RCTNetworking.mm'
+    unless has_pods_project_source_file dependency
+      puts '[!] RCTNetwork subspec may be required given your current dependencies'
+    end
+  end
+
+  if has_pods_project_source_file 'RCTJavaScriptLoader.mm'
+    # then it may fail to compile then fail to link if it does not also have:
+    dependency = 'RCTCxxBridge.mm'
+    unless has_pods_project_source_file dependency
+      puts '[!] CxxBridge subspec may be required given your current dependencies'
+    end
+  end
+end
+
 fix_unused_yoga_headers
 fix_cplusplus_header_compiler_error
 fix_method_queue_property_defs
+detect_missing_subspecs
 
 # https://github.com/facebook/react-native/pull/14664
 animation_view_file = 'Libraries/NativeAnimation/RCTNativeAnimatedNodesManager.h'
